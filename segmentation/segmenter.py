@@ -67,13 +67,14 @@ def segment_contour(image):
 
     # Get bounding boxes and filter out noise (too small regions)
     img_h, img_w = binary.shape
-    min_area = (img_h * img_w) * 0.005  # At least 0.5% of image area
+    min_area = (img_h * img_w) * 0.01  # At least 1% of image area
 
     bounding_boxes = []
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
         area = w * h
-        if area > min_area and h > img_h * 0.1:  # Filter noise
+        # Accept if tall enough OR wide enough (catches minus sign, etc.)
+        if area > min_area and (h > img_h * 0.15 or w > img_w * 0.03):
             bounding_boxes.append((x, y, w, h))
 
     # Sort left-to-right by x coordinate
@@ -115,7 +116,7 @@ def segment_connected_components(image):
         h = stats[i, cv2.CC_STAT_HEIGHT]
         area = stats[i, cv2.CC_STAT_AREA]
 
-        if area > min_area and h > img_h * 0.1:
+        if area > min_area and (h > img_h * 0.15 or w > img_w * 0.03):
             bounding_boxes.append((x, y, w, h))
 
     # Sort left-to-right
@@ -147,7 +148,7 @@ def segment_projection(image):
     projection = np.sum(binary > 0, axis=0)
 
     # Find digit regions (where projection > threshold)
-    threshold = max(1, np.max(projection) * 0.05)
+    threshold = max(2, np.max(projection) * 0.08)
     is_digit = projection > threshold
 
     # Find start and end of each digit region

@@ -10,9 +10,10 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from config import (
-    AVAILABLE_MODELS, BATCH_SIZE, EPOCHS, LEARNING_RATE,
+    BATCH_SIZE, EPOCHS, LEARNING_RATE,
     MODEL_CNN_KERAS, MODEL_CNN_PYTORCH, MODEL_SVM, MODEL_KNN
 )
+from models.model_manager import get_available_models
 
 
 class TrainingWorker(QThread):
@@ -76,7 +77,7 @@ class TrainingTab(QWidget):
             MODEL_SVM: "SVM (scikit-learn)",
             MODEL_KNN: "KNN (scikit-learn)",
         }
-        for model_id in AVAILABLE_MODELS:
+        for model_id in get_available_models():
             self.model_combo.addItem(model_display_names.get(model_id, model_id), model_id)
 
         model_layout.addRow("Model:", self.model_combo)

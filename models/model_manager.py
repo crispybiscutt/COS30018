@@ -22,7 +22,8 @@ def load_mnist():
     try:
         from tensorflow.keras.datasets import mnist
         (X_train, y_train), (X_test, y_test) = mnist.load_data()
-    except ImportError:
+    except (ImportError, OSError, Exception):
+        # TensorFlow may not be available, fall back to torchvision
         import torchvision
         train_set = torchvision.datasets.MNIST(
             root="./data/mnist", train=True, download=True
@@ -57,6 +58,25 @@ def split_validation(X_train, y_train, val_split=VALIDATION_SPLIT):
             X_train[val_idx], y_train[val_idx])
 
 
+def is_tensorflow_available():
+    """Check if TensorFlow is properly installed and usable."""
+    try:
+        import tensorflow as tf
+        # Try a simple operation to verify it actually works
+        tf.constant(1)
+        return True
+    except (ImportError, OSError, Exception):
+        return False
+
+
+def get_available_models():
+    """Return list of model names that can actually be used on this system."""
+    available = [MODEL_CNN_PYTORCH, MODEL_SVM, MODEL_KNN]
+    if is_tensorflow_available():
+        available.insert(0, MODEL_CNN_KERAS)
+    return available
+
+
 def get_model(model_name):
     """
     Factory function: create a model instance by name.
@@ -68,6 +88,11 @@ def get_model(model_name):
         BaseModel instance
     """
     if model_name == MODEL_CNN_KERAS:
+        if not is_tensorflow_available():
+            raise RuntimeError(
+                "TensorFlow is not available on this system. "
+                "Use CNN (PyTorch) instead."
+            )
         from models.cnn_keras import CNNKeras
         return CNNKeras()
     elif model_name == MODEL_CNN_PYTORCH:

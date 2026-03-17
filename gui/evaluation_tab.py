@@ -15,7 +15,8 @@ matplotlib.use("Qt5Agg")
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from config import AVAILABLE_MODELS, MODEL_CNN_KERAS, MODEL_CNN_PYTORCH, MODEL_SVM, MODEL_KNN
+from config import MODEL_CNN_KERAS, MODEL_CNN_PYTORCH, MODEL_SVM, MODEL_KNN
+from models.model_manager import get_available_models
 
 
 class EvaluationWorker(QThread):
@@ -77,7 +78,7 @@ class EvaluationTab(QWidget):
             MODEL_SVM: "SVM",
             MODEL_KNN: "KNN",
         }
-        for model_id in AVAILABLE_MODELS:
+        for model_id in get_available_models():
             cb = QCheckBox(model_names.get(model_id, model_id))
             cb.setChecked(True)
             self.model_checks[model_id] = cb

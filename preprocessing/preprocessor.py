@@ -127,6 +127,29 @@ def preprocess_for_model(image, method=PREPROCESS_BASIC):
     return processed.reshape(1, IMAGE_SIZE, IMAGE_SIZE, 1)
 
 
+def normalize_segmented(image):
+    """
+    Normalize a segmented digit image that is ALREADY in MNIST format
+    (white digit on black background, 28x28, uint8).
+
+    This should be used AFTER segmentation, instead of preprocess().
+    Segmentation output is already binarized and sized - just normalize to [0,1].
+    """
+    img = np.array(image, dtype=np.float32)
+
+    # Ensure it's 28x28
+    if img.shape != (IMAGE_SIZE, IMAGE_SIZE):
+        img_uint8 = img.astype(np.uint8) if img.max() <= 255 else img
+        img = cv2.resize(img_uint8.astype(np.uint8), (IMAGE_SIZE, IMAGE_SIZE),
+                         interpolation=cv2.INTER_AREA).astype(np.float32)
+
+    # Normalize to [0, 1]
+    if img.max() > 1.0:
+        img = img / 255.0
+
+    return img
+
+
 def invert_if_needed(image):
     """
     MNIST digits are white on black background.

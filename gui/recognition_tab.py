@@ -1,27 +1,34 @@
 """
 COS30018 - Recognition Tab
-PyQt5 tab for recognizing handwritten digits and numbers.
-Features: drawing canvas, image upload, folder loading, prediction display.
+PyQt5 tab for recognizing handwritten digits, numbers, and arithmetic expressions.
+Features: drawing canvas, image upload, folder loading, expression mode,
+          preprocessing/segmentation method selection, prediction display.
 """
 import os
 import numpy as np
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QFileDialog, QGroupBox, QGridLayout,
-    QMessageBox, QFrame, QSizePolicy
+    QMessageBox, QFrame, QCheckBox, QFormLayout
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPixmap, QImage
 from gui.drawing_canvas import DrawingCanvas
-from config import AVAILABLE_MODELS, MODEL_CNN_KERAS, MODEL_CNN_PYTORCH, MODEL_SVM, MODEL_KNN
+from config import (
+    MODEL_CNN_KERAS, MODEL_CNN_PYTORCH, MODEL_SVM, MODEL_KNN,
+    PREPROCESS_BASIC, PREPROCESS_OTSU, PREPROCESS_ADAPTIVE,
+    SEGMENT_CONTOUR, SEGMENT_CONNECTED, SEGMENT_PROJECTION,
+)
+from models.model_manager import get_available_models
 
 
 class RecognitionTab(QWidget):
-    """Tab widget for digit/number recognition."""
+    """Tab widget for digit/number/expression recognition."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_model = None
+        self.expression_model = None
         self._init_ui()
 
     def _init_ui(self):
@@ -30,9 +37,11 @@ class RecognitionTab(QWidget):
         # --- Left Panel: Input ---
         left_panel = QVBoxLayout()
 
+        # Model & method selection
+        settings_group = QGroupBox("Settings")
+        settings_layout = QFormLayout()
+
         # Model selection
-        model_layout = QHBoxLayout()
-        model_layout.addWidget(QLabel("Model:"))
         self.model_combo = QComboBox()
         model_names = {
             MODEL_CNN_KERAS: "CNN (Keras)",
@@ -40,22 +49,39 @@ class RecognitionTab(QWidget):
             MODEL_SVM: "SVM",
             MODEL_KNN: "KNN",
         }
-        for model_id in AVAILABLE_MODELS:
+        for model_id in get_available_models():
             self.model_combo.addItem(model_names.get(model_id, model_id), model_id)
         self.model_combo.currentIndexChanged.connect(self._load_model)
-        model_layout.addWidget(self.model_combo)
+        settings_layout.addRow("Model:", self.model_combo)
 
-        self.load_model_btn = QPushButton("Load Model")
-        self.load_model_btn.clicked.connect(self._load_model)
-        model_layout.addWidget(self.load_model_btn)
-        left_panel.addLayout(model_layout)
+        # Preprocessing method
+        self.preprocess_combo = QComboBox()
+        self.preprocess_combo.addItem("Basic (Grayscale + Normalize)", PREPROCESS_BASIC)
+        self.preprocess_combo.addItem("Otsu Binarization", PREPROCESS_OTSU)
+        self.preprocess_combo.addItem("Adaptive Threshold", PREPROCESS_ADAPTIVE)
+        settings_layout.addRow("Preprocessing:", self.preprocess_combo)
+
+        # Segmentation method
+        self.segment_combo = QComboBox()
+        self.segment_combo.addItem("Contour-based", SEGMENT_CONTOUR)
+        self.segment_combo.addItem("Connected Components", SEGMENT_CONNECTED)
+        self.segment_combo.addItem("Vertical Projection", SEGMENT_PROJECTION)
+        settings_layout.addRow("Segmentation:", self.segment_combo)
+
+        # Expression mode toggle
+        self.expr_mode = QCheckBox("Expression Mode (Extension: +, -, *, /)")
+        self.expr_mode.setToolTip("Enable to recognize arithmetic expressions like 2+3*4")
+        settings_layout.addRow(self.expr_mode)
+
+        settings_group.setLayout(settings_layout)
+        left_panel.addWidget(settings_group)
 
         self.model_status = QLabel("No model loaded")
         self.model_status.setStyleSheet("color: #f44336; font-style: italic;")
         left_panel.addWidget(self.model_status)
 
         # Drawing canvas
-        canvas_group = QGroupBox("Draw Here (Single Digit or Number)")
+        canvas_group = QGroupBox("Draw Here")
         canvas_layout = QVBoxLayout()
         self.canvas = DrawingCanvas()
         canvas_layout.addWidget(self.canvas, alignment=Qt.AlignCenter)
@@ -82,17 +108,19 @@ class RecognitionTab(QWidget):
         load_group = QGroupBox("Or Load Image")
         load_layout = QVBoxLayout()
 
+        load_btn_row = QHBoxLayout()
         self.load_image_btn = QPushButton("Load Image File")
         self.load_image_btn.clicked.connect(self._load_image)
-        load_layout.addWidget(self.load_image_btn)
+        load_btn_row.addWidget(self.load_image_btn)
 
-        self.load_folder_btn = QPushButton("Create Number from Digit Folder")
+        self.load_folder_btn = QPushButton("From Digit Folder")
         self.load_folder_btn.clicked.connect(self._load_from_folder)
-        load_layout.addWidget(self.load_folder_btn)
+        load_btn_row.addWidget(self.load_folder_btn)
+        load_layout.addLayout(load_btn_row)
 
         self.image_label = QLabel("No image loaded")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setFixedHeight(100)
+        self.image_label.setFixedHeight(80)
         self.image_label.setStyleSheet("border: 1px solid #ddd; background: #fafafa;")
         load_layout.addWidget(self.image_label)
 
@@ -117,18 +145,29 @@ class RecognitionTab(QWidget):
         result_layout = QVBoxLayout()
 
         self.result_label = QLabel("?")
-        self.result_label.setFont(QFont("Arial", 72, QFont.Bold))
+        self.result_label.setFont(QFont("Arial", 48, QFont.Bold))
         self.result_label.setAlignment(Qt.AlignCenter)
+        self.result_label.setWordWrap(True)
         self.result_label.setStyleSheet(
             "color: #1976D2; background: white; border: 2px solid #1976D2; "
-            "border-radius: 10px; padding: 20px; min-height: 120px;"
+            "border-radius: 10px; padding: 15px; min-height: 80px;"
         )
         result_layout.addWidget(self.result_label)
 
         self.confidence_label = QLabel("Confidence: -")
-        self.confidence_label.setFont(QFont("Arial", 14))
+        self.confidence_label.setFont(QFont("Arial", 12))
         self.confidence_label.setAlignment(Qt.AlignCenter)
         result_layout.addWidget(self.confidence_label)
+
+        # Expression result (shown only in expression mode)
+        self.expr_result_label = QLabel("")
+        self.expr_result_label.setFont(QFont("Arial", 20, QFont.Bold))
+        self.expr_result_label.setAlignment(Qt.AlignCenter)
+        self.expr_result_label.setStyleSheet(
+            "color: #4CAF50; background: #E8F5E9; border-radius: 5px; padding: 8px;"
+        )
+        self.expr_result_label.setVisible(False)
+        result_layout.addWidget(self.expr_result_label)
 
         result_group.setLayout(result_layout)
         right_panel.addWidget(result_group)
@@ -173,12 +212,22 @@ class RecognitionTab(QWidget):
                 self.model_status.setText(f"Loaded: {self.current_model.name}")
                 self.model_status.setStyleSheet("color: #4CAF50; font-weight: bold;")
             else:
-                self.model_status.setText(f"No trained model found for {model_name}. Train first!")
+                self.model_status.setText(f"No trained model for {model_name}. Train first!")
                 self.model_status.setStyleSheet("color: #f44336; font-style: italic;")
                 self.current_model = None
         except Exception as e:
             self.model_status.setText(f"Error: {e}")
             self.model_status.setStyleSheet("color: #f44336;")
+
+    def _load_expression_model(self):
+        """Load the expression model (16 classes) for expression mode."""
+        if self.expression_model is None:
+            try:
+                from extension.operator_recognizer import load_expression_model
+                self.expression_model = load_expression_model()
+            except Exception:
+                pass
+        return self.expression_model
 
     def _predict_drawing(self):
         """Predict the digit drawn on canvas."""
@@ -187,7 +236,7 @@ class RecognitionTab(QWidget):
             return
 
         if self.canvas.is_empty():
-            QMessageBox.warning(self, "Empty Canvas", "Please draw a digit first!")
+            QMessageBox.warning(self, "Empty Canvas", "Please draw something first!")
             return
 
         canvas_img = self.canvas.get_image_array()
@@ -221,35 +270,66 @@ class RecognitionTab(QWidget):
         """Display loaded image in the preview label."""
         h, w = img.shape[:2]
         if len(img.shape) == 2:
-            q_img = QImage(img.data, w, h, w, QImage.Format_Grayscale8)
+            bytes_per_line = w
+            q_img = QImage(img.data, w, h, bytes_per_line, QImage.Format_Grayscale8)
         else:
-            q_img = QImage(img.data, w, h, w * 3, QImage.Format_RGB888)
+            bytes_per_line = w * 3
+            q_img = QImage(img.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(q_img)
-        scaled = pixmap.scaled(250, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = pixmap.scaled(250, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(scaled)
 
     def _predict_loaded_image(self):
-        """Predict the loaded image (could be multi-digit)."""
+        """Predict the loaded image (could be multi-digit or expression)."""
         if self.current_model is None:
             QMessageBox.warning(self, "No Model", "Please load a trained model first!")
             return
-
         if self.loaded_image is None:
             QMessageBox.warning(self, "No Image", "Please load an image first!")
             return
-
         self._recognize_image(self.loaded_image, is_single_digit=False)
 
     def _recognize_image(self, image, is_single_digit=False):
         """Run the full recognition pipeline on an image."""
         import cv2
-        from preprocessing.preprocessor import preprocess
+        from preprocessing.preprocessor import normalize_segmented
         from segmentation.segmenter import segment
         from models.model_manager import predict_digit
 
+        seg_method = self.segment_combo.currentData()
+        is_expression = self.expr_mode.isChecked()
+
         try:
+            if is_expression and not is_single_digit:
+                # Expression mode: use 16-class model
+                expr_model = self._load_expression_model()
+                if expr_model is None:
+                    QMessageBox.warning(
+                        self, "No Expression Model",
+                        "Expression model not trained.\n"
+                        "Train it first using: python -c \"from extension.operator_recognizer import train_expression_model; train_expression_model()\""
+                    )
+                    return
+
+                from extension.expression_evaluator import recognize_expression
+                result = recognize_expression(image, expr_model, seg_method)
+
+                self.result_label.setText(result["expression"] or "?")
+                self.expr_result_label.setVisible(True)
+
+                if result["result"] is not None:
+                    self.expr_result_label.setText(f"= {result['result']}")
+                    self.confidence_label.setText(
+                        f"Symbols: {', '.join(str(v) for _, v in result['symbols'])}"
+                    )
+                elif result["error"]:
+                    self.expr_result_label.setText(f"Error: {result['error']}")
+                    self.confidence_label.setText("")
+                return
+
+            self.expr_result_label.setVisible(False)
+
             if is_single_digit:
-                # Single digit: just preprocess and predict
                 from utils.image_utils import canvas_to_mnist_format
                 processed = canvas_to_mnist_format(image)
                 label, confidence, proba = predict_digit(self.current_model, processed)
@@ -258,22 +338,21 @@ class RecognitionTab(QWidget):
                 self.confidence_label.setText(f"Confidence: {confidence:.1%}")
                 self._update_proba_bars(proba)
             else:
-                # Multi-digit: segment then predict each digit
-                digits, boxes = segment(image)
+                # Multi-digit number
+                digits, boxes = segment(image, method=seg_method)
 
                 if not digits:
-                    QMessageBox.warning(self, "No Digits", "Could not find any digits in the image!")
+                    QMessageBox.warning(self, "No Digits", "Could not find any digits!")
                     return
 
                 number_str = ""
                 for digit_img in digits:
-                    processed = preprocess(digit_img)
+                    processed = normalize_segmented(digit_img)
                     label, conf, proba = predict_digit(self.current_model, processed)
                     number_str += str(label)
 
                 self.result_label.setText(number_str)
                 self.confidence_label.setText(f"Detected {len(digits)} digit(s)")
-                # Show proba of last digit
                 self._update_proba_bars(proba)
 
         except Exception as e:
