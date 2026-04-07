@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+from torchvision import transforms
 from models.base_model import BaseModel
 from config import IMAGE_SIZE, BATCH_SIZE, EPOCHS, LEARNING_RATE
 
@@ -70,10 +71,20 @@ class CNNPyTorch(BaseModel):
               epochs=EPOCHS, batch_size=BATCH_SIZE, callback=None):
         """
         Train the PyTorch CNN with custom training loop.
-        Includes training + validation per epoch.
+        Includes data augmentation (rotation, shift, scaling) for robustness
+        against hand-drawn input that differs from clean MNIST images.
         """
         if self.model is None:
             self.build()
+
+        # Data augmentation for training - makes model robust to hand-drawn input
+        self._augment = transforms.Compose([
+            transforms.RandomAffine(
+                degrees=10,           # Random rotation up to ±10°
+                translate=(0.1, 0.1), # Random shift up to 10%
+                scale=(0.9, 1.1),     # Random scaling 90%-110%
+            ),
+        ])
 
         # Prepare data: (N, 28, 28) -> (N, 1, 28, 28) for PyTorch conv layers
         X_train_t = torch.FloatTensor(X_train).unsqueeze(1).to(self.device)
@@ -90,9 +101,10 @@ class CNNPyTorch(BaseModel):
             val_dataset = TensorDataset(X_val_t, y_val_t)
             val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
-        # Optimizer and loss function
+        # Optimizer, loss function, and learning rate scheduler
         optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
         criterion = nn.CrossEntropyLoss()
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
         history = {"loss": [], "accuracy": [], "val_loss": [], "val_accuracy": []}
 
@@ -104,6 +116,9 @@ class CNNPyTorch(BaseModel):
             total = 0
 
             for batch_X, batch_y in train_loader:
+                # Apply data augmentation to training batch
+                batch_X = self._augment(batch_X)
+
                 optimizer.zero_grad()
                 outputs = self.model(batch_X)
                 loss = criterion(outputs, batch_y)
@@ -131,6 +146,9 @@ class CNNPyTorch(BaseModel):
             else:
                 print(f"Epoch {epoch+1}/{epochs} - loss: {epoch_loss:.4f} - "
                       f"acc: {epoch_acc:.4f}")
+
+            # Step learning rate scheduler
+            scheduler.step()
 
             # Call progress callback if provided (for GUI progress bar)
             if callback:

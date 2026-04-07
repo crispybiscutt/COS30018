@@ -14,27 +14,22 @@ from config import (
 
 def load_mnist():
     """
-    Load MNIST dataset. Tries Keras first, falls back to torchvision.
+    Load MNIST dataset via torchvision.
     Returns: (X_train, y_train, X_test, y_test)
         X: float32 arrays normalized to [0, 1], shape (N, 28, 28)
         y: int arrays of labels 0-9, shape (N,)
     """
-    try:
-        from tensorflow.keras.datasets import mnist
-        (X_train, y_train), (X_test, y_test) = mnist.load_data()
-    except (ImportError, OSError, Exception):
-        # TensorFlow may not be available, fall back to torchvision
-        import torchvision
-        train_set = torchvision.datasets.MNIST(
-            root="./data/mnist", train=True, download=True
-        )
-        test_set = torchvision.datasets.MNIST(
-            root="./data/mnist", train=False, download=True
-        )
-        X_train = train_set.data.numpy()
-        y_train = train_set.targets.numpy()
-        X_test = test_set.data.numpy()
-        y_test = test_set.targets.numpy()
+    import torchvision
+    train_set = torchvision.datasets.MNIST(
+        root="./data/mnist", train=True, download=True
+    )
+    test_set = torchvision.datasets.MNIST(
+        root="./data/mnist", train=False, download=True
+    )
+    X_train = train_set.data.numpy()
+    y_train = train_set.targets.numpy()
+    X_test = test_set.data.numpy()
+    y_test = test_set.targets.numpy()
 
     # Normalize to [0, 1]
     X_train = X_train.astype(np.float32) / 255.0
@@ -58,15 +53,25 @@ def split_validation(X_train, y_train, val_split=VALIDATION_SPLIT):
             X_train[val_idx], y_train[val_idx])
 
 
+_tf_available = None  # Cache result to avoid repeated DLL loading attempts
+
+
 def is_tensorflow_available():
-    """Check if TensorFlow is properly installed and usable."""
+    """Check if TensorFlow is properly installed and usable. Result is cached.
+
+    Tests import directly in-process so it detects DLL conflicts
+    (e.g. PyQt5 + TF DLL incompatibility on some systems).
+    """
+    global _tf_available
+    if _tf_available is not None:
+        return _tf_available
     try:
         import tensorflow as tf
-        # Try a simple operation to verify it actually works
         tf.constant(1)
-        return True
-    except (ImportError, OSError, Exception):
-        return False
+        _tf_available = True
+    except Exception:
+        _tf_available = False
+    return _tf_available
 
 
 def get_available_models():

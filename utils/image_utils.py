@@ -110,6 +110,10 @@ def canvas_to_mnist_format(canvas_image):
     Convert a drawing canvas image (white background, black strokes)
     to MNIST format (black background, white digit, 28x28).
 
+    Uses MNIST-style preprocessing:
+    - Fit digit into 20x20 box preserving aspect ratio
+    - Center in 28x28 frame using center of mass
+
     Args:
         canvas_image: Grayscale image from PyQt5 drawing canvas
 
@@ -131,19 +135,35 @@ def canvas_to_mnist_format(canvas_image):
         return np.zeros((IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32)
 
     x, y, w, h = cv2.boundingRect(coords)
-
-    # Extract digit and add padding
     digit = inverted[y:y+h, x:x+w]
-    max_dim = max(w, h)
-    pad = int(max_dim * 0.2)
 
-    square = np.zeros((max_dim + 2 * pad, max_dim + 2 * pad), dtype=np.uint8)
-    x_off = (max_dim + 2 * pad - w) // 2
-    y_off = (max_dim + 2 * pad - h) // 2
-    square[y_off:y_off+h, x_off:x_off+w] = digit
+    # Fit into 20x20 box preserving aspect ratio (like MNIST)
+    target_size = 20
+    if h > w:
+        new_h = target_size
+        new_w = max(1, int(w * (target_size / h)))
+    else:
+        new_w = target_size
+        new_h = max(1, int(h * (target_size / w)))
 
-    # Resize to 28x28
-    resized = cv2.resize(square, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+    resized = cv2.resize(digit, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+    # Place in 28x28 canvas, centered by center of mass
+    canvas = np.zeros((IMAGE_SIZE, IMAGE_SIZE), dtype=np.uint8)
+
+    M = cv2.moments(resized)
+    if M["m00"] > 0:
+        cx = M["m10"] / M["m00"]
+        cy = M["m01"] / M["m00"]
+    else:
+        cx, cy = new_w / 2, new_h / 2
+
+    x_offset = int(round(14 - cx))
+    y_offset = int(round(14 - cy))
+    x_offset = max(0, min(x_offset, IMAGE_SIZE - new_w))
+    y_offset = max(0, min(y_offset, IMAGE_SIZE - new_h))
+
+    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
 
     # Normalize to [0, 1]
-    return resized.astype(np.float32) / 255.0
+    return canvas.astype(np.float32) / 255.0
