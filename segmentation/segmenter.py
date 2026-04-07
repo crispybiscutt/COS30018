@@ -10,21 +10,30 @@ Techniques:
 """
 import cv2
 import numpy as np
-from config import IMAGE_SIZE, SEGMENT_CONTOUR, SEGMENT_CONNECTED, SEGMENT_PROJECTION
+from config import IMAGE_SIZE, SEGMENT_CONTOUR, SEGMENT_CONNECTED, SEGMENT_PROJECTION, PREPROCESS_BASIC
 
 
-def _prepare_binary(image):
-    """Convert input image to binary (white digits on black background)."""
+def _prepare_binary(image, preprocess_method=None):
+    """Convert input image to binary (white digits on black background).
+
+    Args:
+        image: Input image (BGR or grayscale)
+        preprocess_method: If provided, use the corresponding preprocessing
+            technique from preprocessor.py for better results on camera photos.
+    """
+    if preprocess_method is not None:
+        from preprocessing.preprocessor import prepare_for_segmentation
+        return prepare_for_segmentation(image, method=preprocess_method)
+
+    # Default: simple Otsu (backwards compatible)
     if len(image.shape) == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     else:
         gray = image.copy()
 
-    # Invert if needed (make digits white on black)
     if np.mean(gray) > 127:
         gray = 255 - gray
 
-    # Binarize using Otsu's method
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return binary
 
@@ -51,7 +60,7 @@ def _extract_and_pad_digit(binary, x, y, w, h, padding=4):
     return resized
 
 
-def segment_contour(image):
+def segment_contour(image, preprocess_method=None):
     """
     Technique 1 - Contour-based segmentation.
     Steps: Binarize -> Find external contours -> Get bounding boxes ->
@@ -60,7 +69,7 @@ def segment_contour(image):
     Uses OpenCV's findContours which traces the boundaries of white regions.
     Good for well-separated digits with clear boundaries.
     """
-    binary = _prepare_binary(image)
+    binary = _prepare_binary(image, preprocess_method)
 
     # Find external contours only (outermost boundaries)
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -89,7 +98,7 @@ def segment_contour(image):
     return digits, bounding_boxes
 
 
-def segment_connected_components(image):
+def segment_connected_components(image, preprocess_method=None):
     """
     Technique 2 - Connected Components segmentation.
     Steps: Binarize -> Find connected components with stats ->
@@ -98,7 +107,7 @@ def segment_connected_components(image):
     Uses OpenCV's connectedComponentsWithStats which labels each connected
     region of white pixels. More robust than contours for overlapping strokes.
     """
-    binary = _prepare_binary(image)
+    binary = _prepare_binary(image, preprocess_method)
 
     # Find connected components with statistics
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
@@ -133,7 +142,7 @@ def segment_connected_components(image):
     return digits, merged
 
 
-def segment_projection(image):
+def segment_projection(image, preprocess_method=None):
     """
     Technique 3 - Vertical Projection segmentation.
     Steps: Binarize -> Compute vertical projection (sum of white pixels per column) ->
@@ -142,7 +151,7 @@ def segment_projection(image):
     Analyzes the distribution of ink along the horizontal axis.
     Works best for digits that are clearly separated with gaps between them.
     """
-    binary = _prepare_binary(image)
+    binary = _prepare_binary(image, preprocess_method)
 
     # Compute vertical projection (sum of white pixels for each column)
     projection = np.sum(binary > 0, axis=0)
@@ -244,13 +253,15 @@ def _merge_overlapping_boxes(boxes, overlap_threshold=0.3):
     return merged
 
 
-def segment(image, method=SEGMENT_CONTOUR):
+def segment(image, method=SEGMENT_CONTOUR, preprocess_method=None):
     """
     Main segmentation function. Applies the selected technique.
 
     Args:
         image: Input image containing multi-digit number
         method: One of 'contour', 'connected_components', 'projection'
+        preprocess_method: Preprocessing to apply before segmentation
+            (None=default Otsu, 'basic', 'otsu', 'adaptive', 'photo')
 
     Returns:
         Tuple of (list of digit images, list of bounding boxes)
@@ -266,4 +277,4 @@ def segment(image, method=SEGMENT_CONTOUR):
         raise ValueError(f"Unknown segmentation method: {method}. "
                          f"Choose from: {list(methods.keys())}")
 
-    return methods[method](image)
+    return methods[method](image, preprocess_method=preprocess_method)
