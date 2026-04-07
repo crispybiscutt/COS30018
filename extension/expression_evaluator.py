@@ -15,7 +15,7 @@ from segmentation.segmenter import segment
 from extension.operator_recognizer import classify_symbol, load_expression_model
 
 
-def recognize_expression(image, expression_model=None, segment_method="contour"):
+def recognize_expression(image, expression_model=None, segment_method="contour", digit_model=None):
     """
     Recognize a handwritten arithmetic expression from an image.
 
@@ -57,7 +57,7 @@ def recognize_expression(image, expression_model=None, segment_method="contour")
     symbols = []
     for digit_img in digit_images:
         processed = normalize_segmented(digit_img)
-        symbol_type, value = classify_symbol(processed, expression_model)
+        symbol_type, value = classify_symbol(processed, expression_model, digit_model=digit_model)
         symbols.append((symbol_type, value))
 
     # Step 3: Build expression string
