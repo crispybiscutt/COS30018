@@ -1,249 +1,263 @@
 """
-COS30018 - Evaluation Tab
-PyQt5 tab for comparing and evaluating trained models.
-Features: model evaluation, confusion matrix, comparison charts.
+COS30018 - Evaluation Tab (Modern Dark Theme)
+Displays pre-computed evaluation results with charts.
+Loads results from data/evaluation_results/results.json on startup.
 """
+import json
+import os
 import numpy as np
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QTextEdit, QMessageBox, QCheckBox, QGridLayout
+    QGroupBox, QTextEdit, QMessageBox, QGridLayout, QFrame
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 import matplotlib
 matplotlib.use("Qt5Agg")
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from config import MODEL_CNN_KERAS, MODEL_CNN_PYTORCH, MODEL_SVM, MODEL_KNN
-from models.model_manager import get_available_models
+from gui.theme import btn_warning, btn_primary, TEXT_SECONDARY, PRIMARY, SUCCESS
 
 
-class EvaluationWorker(QThread):
-    """Background thread for model evaluation."""
-    finished = pyqtSignal(list)  # list of evaluation results
-    progress = pyqtSignal(str)   # progress message
-    error = pyqtSignal(str)
+CHART_STYLE = {
+    "figure.facecolor": "#ffffff",
+    "axes.facecolor": "#f8fafc",
+    "axes.edgecolor": "#e2e8f0",
+    "axes.labelcolor": "#1e293b",
+    "text.color": "#1e293b",
+    "xtick.color": "#64748b",
+    "ytick.color": "#64748b",
+}
 
-    def __init__(self, model_names):
-        super().__init__()
-        self.model_names = model_names
-
-    def run(self):
-        try:
-            from models.model_manager import load_trained_model, load_mnist
-            from evaluation.evaluator import evaluate_model
-
-            self.progress.emit("Loading MNIST test data...")
-            _, _, X_test, y_test = load_mnist()
-
-            results = []
-            for name in self.model_names:
-                self.progress.emit(f"Evaluating {name}...")
-                model = load_trained_model(name)
-                if model and model.is_trained:
-                    result = evaluate_model(model, X_test, y_test)
-                    results.append(result)
-                    self.progress.emit(
-                        f"{name}: {result['accuracy']*100:.2f}% accuracy"
-                    )
-                else:
-                    self.progress.emit(f"{name}: Not trained yet, skipping")
-
-            self.finished.emit(results)
-
-        except Exception as e:
-            self.error.emit(str(e))
+RESULTS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "evaluation_results", "results.json"
+)
 
 
 class EvaluationTab(QWidget):
-    """Tab widget for model evaluation and comparison."""
+    """Tab displaying pre-computed evaluation results."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.results = []
+        self.current_cm_index = 0
         self._init_ui()
+        self._load_results()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
 
-        # --- Model Selection ---
-        select_group = QGroupBox("Select Models to Evaluate")
-        select_layout = QHBoxLayout()
+        # Summary cards row
+        self.cards_layout = QHBoxLayout()
+        self.cards_layout.setSpacing(12)
+        layout.addLayout(self.cards_layout)
 
-        self.model_checks = {}
-        model_names = {
-            MODEL_CNN_KERAS: "CNN (Keras)",
-            MODEL_CNN_PYTORCH: "CNN (PyTorch)",
-            MODEL_SVM: "SVM",
-            MODEL_KNN: "KNN",
-        }
-        for model_id in get_available_models():
-            cb = QCheckBox(model_names.get(model_id, model_id))
-            cb.setChecked(True)
-            self.model_checks[model_id] = cb
-            select_layout.addWidget(cb)
-
-        self.eval_btn = QPushButton("Evaluate All")
-        self.eval_btn.setStyleSheet(
-            "QPushButton { background-color: #FF9800; color: white; "
-            "font-size: 14px; padding: 8px 20px; border-radius: 4px; }"
-        )
-        self.eval_btn.clicked.connect(self._start_evaluation)
-        select_layout.addWidget(self.eval_btn)
-
-        select_group.setLayout(select_layout)
-        layout.addWidget(select_group)
-
-        # --- Results ---
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(120)
-        self.log_text.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
-        layout.addWidget(self.log_text)
-
-        # --- Charts ---
+        # Charts
         chart_layout = QHBoxLayout()
+        chart_layout.setSpacing(12)
 
-        # Accuracy comparison chart
-        self.accuracy_figure = Figure(figsize=(5, 4))
+        self.accuracy_figure = Figure(figsize=(5, 3.5))
         self.accuracy_canvas = FigureCanvas(self.accuracy_figure)
+        self.accuracy_canvas.setStyleSheet("background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;")
         chart_layout.addWidget(self.accuracy_canvas)
 
-        # Confusion matrix chart
-        self.cm_figure = Figure(figsize=(5, 4))
+        self.cm_figure = Figure(figsize=(5, 3.5))
         self.cm_canvas = FigureCanvas(self.cm_figure)
+        self.cm_canvas.setStyleSheet("background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;")
         chart_layout.addWidget(self.cm_canvas)
 
-        layout.addLayout(chart_layout)
+        layout.addLayout(chart_layout, stretch=1)
 
-        # --- Navigation for confusion matrices ---
+        # Navigation
         nav_layout = QHBoxLayout()
-        self.prev_cm_btn = QPushButton("< Previous Model")
+
+        self.prev_cm_btn = QPushButton("Previous")
         self.prev_cm_btn.clicked.connect(self._show_prev_cm)
         self.prev_cm_btn.setEnabled(False)
         nav_layout.addWidget(self.prev_cm_btn)
 
-        self.cm_model_label = QLabel("No data")
+        self.cm_model_label = QLabel("Loading results...")
         self.cm_model_label.setAlignment(Qt.AlignCenter)
-        nav_layout.addWidget(self.cm_model_label)
+        self.cm_model_label.setFont(QFont("Segoe UI", 11))
+        self.cm_model_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
+        nav_layout.addWidget(self.cm_model_label, stretch=1)
 
-        self.next_cm_btn = QPushButton("Next Model >")
+        self.next_cm_btn = QPushButton("Next")
         self.next_cm_btn.clicked.connect(self._show_next_cm)
         self.next_cm_btn.setEnabled(False)
         nav_layout.addWidget(self.next_cm_btn)
 
         layout.addLayout(nav_layout)
 
-        self.current_cm_index = 0
+        # Per-class metrics
+        metrics_group = QGroupBox("Per-Class Metrics (Best Model)")
+        self.metrics_layout = QGridLayout()
+        self.metrics_layout.setSpacing(4)
+        metrics_group.setLayout(self.metrics_layout)
+        layout.addWidget(metrics_group)
 
-    def _start_evaluation(self):
-        """Start evaluating selected models."""
-        selected = [
-            model_id for model_id, cb in self.model_checks.items()
-            if cb.isChecked()
-        ]
-
-        if not selected:
-            QMessageBox.warning(self, "No Models", "Please select at least one model!")
+    def _load_results(self):
+        """Load pre-computed results from JSON."""
+        if not os.path.exists(RESULTS_PATH):
+            self.cm_model_label.setText("No results found. Run evaluation first.")
             return
 
-        self.eval_btn.setEnabled(False)
-        self.log_text.clear()
-        self.log_text.append("Starting evaluation...")
+        with open(RESULTS_PATH, "r") as f:
+            self.results = json.load(f)
 
-        self.worker = EvaluationWorker(selected)
-        self.worker.progress.connect(lambda msg: self.log_text.append(msg))
-        self.worker.finished.connect(self._on_evaluation_done)
-        self.worker.error.connect(self._on_error)
-        self.worker.start()
-
-    def _on_evaluation_done(self, results):
-        """Display evaluation results."""
-        self.eval_btn.setEnabled(True)
-        self.results = results
-
-        if not results:
-            self.log_text.append("No models were evaluated. Train models first!")
+        if not self.results:
             return
 
-        # Generate text report
-        from evaluation.evaluator import generate_evaluation_report
-        report = generate_evaluation_report(results)
-        self.log_text.append(f"\n{report}")
+        # Create summary cards
+        colors = ["#2563eb", "#7c3aed", "#16a34a", "#f59e0b"]
+        for i, result in enumerate(self.results):
+            card = self._create_summary_card(result, colors[i % len(colors)])
+            self.cards_layout.addWidget(card)
 
-        # Plot accuracy comparison
-        self._plot_accuracy(results)
-
-        # Show first confusion matrix
+        # Plot charts
+        self._plot_accuracy()
         self.current_cm_index = 0
         self._show_confusion_matrix(0)
+        self.prev_cm_btn.setEnabled(len(self.results) > 1)
+        self.next_cm_btn.setEnabled(len(self.results) > 1)
 
-        # Enable navigation
-        self.prev_cm_btn.setEnabled(len(results) > 1)
-        self.next_cm_btn.setEnabled(len(results) > 1)
+        # Show per-class metrics for best model
+        best = max(self.results, key=lambda r: r["accuracy"])
+        self._show_per_class_metrics(best)
 
-    def _on_error(self, error_msg):
-        """Handle evaluation error."""
-        self.eval_btn.setEnabled(True)
-        self.log_text.append(f"\nERROR: {error_msg}")
-        QMessageBox.critical(self, "Evaluation Error", error_msg)
+    def _create_summary_card(self, result, color):
+        """Create a summary card for a model."""
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame {{ background: #ffffff; border: 1px solid #e2e8f0; "
+            f"border-radius: 10px; border-left: 4px solid {color}; }}"
+        )
 
-    def _plot_accuracy(self, results):
-        """Plot accuracy comparison bar chart."""
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 10, 14, 10)
+        card_layout.setSpacing(4)
+
+        name = QLabel(result["model_name"])
+        name.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        name.setStyleSheet(f"color: {color}; border: none;")
+        card_layout.addWidget(name)
+
+        acc = QLabel(f"{result['accuracy']*100:.2f}%")
+        acc.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        acc.setStyleSheet("color: #1e293b; border: none;")
+        acc.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(acc)
+
+        time_val = result.get("total_inference_time", result.get("inference_time", 0))
+        info = QLabel(f"Inference: {time_val:.2f}s (10K samples)")
+        info.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 10px; border: none;")
+        card_layout.addWidget(info)
+
+        return card
+
+    def _plot_accuracy(self):
         self.accuracy_figure.clear()
-        ax = self.accuracy_figure.add_subplot(111)
 
-        names = [r["model_name"] for r in results]
-        accs = [r["accuracy"] * 100 for r in results]
-        colors = ["#2196F3", "#4CAF50", "#FF9800", "#9C27B0"]
+        with matplotlib.rc_context(CHART_STYLE):
+            ax = self.accuracy_figure.add_subplot(111)
+            ax.set_facecolor("#f8fafc")
+            self.accuracy_figure.set_facecolor("#ffffff")
 
-        bars = ax.bar(range(len(names)), accs, color=colors[:len(names)])
-        ax.set_xticks(range(len(names)))
-        ax.set_xticklabels(names, rotation=15, ha="right", fontsize=8)
-        ax.set_ylabel("Accuracy (%)")
-        ax.set_title("Model Accuracy Comparison")
-        ax.set_ylim(max(0, min(accs) - 5), 100)
+            names = [r["model_name"] for r in self.results]
+            accs = [r["accuracy"] * 100 for r in self.results]
+            colors = ["#2563eb", "#7c3aed", "#16a34a", "#f59e0b"]
 
-        for bar, acc in zip(bars, accs):
-            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.3,
-                    f"{acc:.2f}%", ha="center", va="bottom", fontsize=9)
+            bars = ax.bar(range(len(names)), accs,
+                         color=colors[:len(names)], width=0.6,
+                         edgecolor="#e2e8f0", linewidth=0.5)
+            ax.set_xticks(range(len(names)))
+            ax.set_xticklabels(names, rotation=15, ha="right", fontsize=9)
+            ax.set_ylabel("Accuracy (%)", fontsize=10)
+            ax.set_title("Model Comparison", fontsize=13, fontweight="bold", pad=12)
+            ax.set_ylim(max(0, min(accs) - 5), 100.5)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_color("#e2e8f0")
+            ax.spines["bottom"].set_color("#e2e8f0")
+            ax.grid(axis="y", alpha=0.3, color="#e2e8f0")
+
+            for bar, acc in zip(bars, accs):
+                ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.3,
+                        f"{acc:.2f}%", ha="center", va="bottom",
+                        fontsize=10, fontweight="bold")
 
         self.accuracy_figure.tight_layout()
         self.accuracy_canvas.draw()
 
     def _show_confusion_matrix(self, index):
-        """Display confusion matrix for a specific model."""
         if not self.results or index >= len(self.results):
             return
 
         result = self.results[index]
-        cm = result["confusion_matrix"]
+        cm = np.array(result["confusion_matrix"])
 
         self.cm_figure.clear()
-        ax = self.cm_figure.add_subplot(111)
 
-        import seaborn as sns
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                    xticklabels=range(10), yticklabels=range(10), ax=ax)
-        ax.set_xlabel("Predicted")
-        ax.set_ylabel("True")
-        ax.set_title(f"Confusion Matrix - {result['model_name']}")
+        with matplotlib.rc_context(CHART_STYLE):
+            ax = self.cm_figure.add_subplot(111)
+            ax.set_facecolor("#f8fafc")
+            self.cm_figure.set_facecolor("#ffffff")
+
+            import seaborn as sns
+            sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                        xticklabels=range(10), yticklabels=range(10), ax=ax,
+                        linewidths=0.5, linecolor="#e2e8f0",
+                        cbar_kws={"shrink": 0.8})
+            ax.set_xlabel("Predicted", fontsize=10)
+            ax.set_ylabel("True", fontsize=10)
+            ax.set_title(f"Confusion Matrix - {result['model_name']}",
+                        fontsize=12, fontweight="bold", pad=10)
 
         self.cm_figure.tight_layout()
         self.cm_canvas.draw()
         self.cm_model_label.setText(
-            f"{result['model_name']} ({index+1}/{len(self.results)})"
+            f"{result['model_name']}  ({index+1}/{len(self.results)})"
         )
 
+    def _show_per_class_metrics(self, result):
+        """Display per-class precision/recall/F1 for a model."""
+        # Header
+        headers = ["Digit", "Precision", "Recall", "F1-Score"]
+        for col, h in enumerate(headers):
+            label = QLabel(h)
+            label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            label.setStyleSheet(f"color: {PRIMARY};")
+            label.setAlignment(Qt.AlignCenter)
+            self.metrics_layout.addWidget(label, 0, col)
+
+        per_class = result.get("per_class", {})
+        for digit in range(10):
+            d = per_class.get(str(digit), {})
+
+            digit_label = QLabel(str(digit))
+            digit_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            digit_label.setAlignment(Qt.AlignCenter)
+            self.metrics_layout.addWidget(digit_label, digit + 1, 0)
+
+            for col, key in enumerate(["precision", "recall", "f1"], 1):
+                val = d.get(key, 0)
+                lbl = QLabel(f"{val:.4f}")
+                lbl.setAlignment(Qt.AlignCenter)
+                lbl.setFont(QFont("Segoe UI", 10))
+                color = SUCCESS if val > 0.99 else "#eaeaea" if val > 0.95 else "#ff9f43"
+                lbl.setStyleSheet(f"color: {color};")
+                self.metrics_layout.addWidget(lbl, digit + 1, col)
+
     def _show_prev_cm(self):
-        """Show previous model's confusion matrix."""
         if self.results:
             self.current_cm_index = (self.current_cm_index - 1) % len(self.results)
             self._show_confusion_matrix(self.current_cm_index)
 
     def _show_next_cm(self):
-        """Show next model's confusion matrix."""
         if self.results:
             self.current_cm_index = (self.current_cm_index + 1) % len(self.results)
             self._show_confusion_matrix(self.current_cm_index)

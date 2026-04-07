@@ -9,12 +9,20 @@ Usage:
 import sys
 import os
 
+# Suppress TensorFlow warnings before any imports
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
 # Add project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def launch_gui():
     """Launch the PyQt5 GUI application."""
+    # Import torch BEFORE QApplication to avoid DLL conflict
+    # between PyTorch's optree and PyQt5 on Windows + Python 3.13
+    import torch  # noqa: F401
+
     from PyQt5.QtWidgets import QApplication
     from gui.main_window import MainWindow
 
@@ -30,8 +38,7 @@ def launch_gui():
 
 def quick_train():
     """Train all models from command line (no GUI)."""
-    from config import AVAILABLE_MODELS
-    from models.model_manager import train_model, load_mnist
+    from models.model_manager import train_model, load_mnist, get_available_models
     from evaluation.evaluator import evaluate_model, generate_evaluation_report
 
     print("=" * 60)
@@ -42,7 +49,7 @@ def quick_train():
     _, _, X_test, y_test = load_mnist()
 
     results = []
-    for model_name in AVAILABLE_MODELS:
+    for model_name in get_available_models():
         try:
             model, history, train_time = train_model(model_name)
             result = evaluate_model(model, X_test, y_test)
