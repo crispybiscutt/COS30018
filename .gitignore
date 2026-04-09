@@ -27,3 +27,7 @@ Thumbs.db
 .env
 venv/
 env/
+
+# Local scripts
+generate_report.py
+VIDEO_SCRIPT.md

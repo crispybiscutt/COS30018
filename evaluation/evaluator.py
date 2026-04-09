@@ -192,3 +192,129 @@ def generate_evaluation_report(results_list):
     lines.append(f"\nBest model: {best['model_name']} ({best['accuracy']*100:.2f}%)")
 
     return "\n".join(lines)
+
+
+def evaluate_multi_digit(model, X_test, y_test,
+                         num_sequences=8, min_digits=2, max_digits=5,
+                         segment_method="contour", seed=42, save_dir=None):
+    """
+    Evaluate multi-digit number recognition on randomly composed sequences.
+
+    Creates composite images from MNIST test digits, runs segmentation + recognition,
+    and compares against ground truth.
+
+    Returns:
+        Dict with sequences, sequence_accuracy, digit_accuracy, segmentation_accuracy
+    """
+    from utils.image_utils import compose_mnist_number
+    from segmentation.segmenter import segment
+    from preprocessing.preprocessor import normalize_segmented
+    from models.model_manager import predict_digit
+    import os
+
+    rng = np.random.RandomState(seed)
+
+    # Build digit pool: {label: [images]}
+    digit_pool = {}
+    for d in range(10):
+        mask = (y_test == d)
+        digit_pool[d] = X_test[mask]
+
+    results = []
+    total_digits = 0
+    correct_digits = 0
+    correct_sequences = 0
+    correct_segmentations = 0
+
+    for i in range(num_sequences):
+        length = rng.randint(min_digits, max_digits + 1)
+        digits = [int(rng.randint(0, 10)) for _ in range(length)]
+        ground_truth = "".join(str(d) for d in digits)
+
+        # Pick random images for each digit
+        digit_imgs = []
+        for d in digits:
+            idx = rng.randint(0, len(digit_pool[d]))
+            digit_imgs.append(digit_pool[d][idx])
+
+        # Compose into single image
+        composite = compose_mnist_number(digit_imgs)
+
+        # Save sample image if requested
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+            import cv2
+            cv2.imwrite(os.path.join(save_dir, f"seq_{i}_{ground_truth}.png"), composite)
+
+        # Segment
+        segments, boxes = segment(composite, method=segment_method)
+        seg_correct = (len(segments) == length)
+        if seg_correct:
+            correct_segmentations += 1
+
+        # Recognize each segment
+        predicted_digits = []
+        for seg_img in segments:
+            normalized = normalize_segmented(seg_img)
+            label, confidence, proba = predict_digit(model, normalized)
+            predicted_digits.append(str(label))
+
+        predicted = "".join(predicted_digits)
+        is_correct = (predicted == ground_truth)
+        if is_correct:
+            correct_sequences += 1
+
+        # Count individual digit accuracy (only if segmentation count matches)
+        if seg_correct:
+            for gt_d, pred_d in zip(ground_truth, predicted):
+                total_digits += 1
+                if gt_d == pred_d:
+                    correct_digits += 1
+        else:
+            total_digits += length
+
+        results.append({
+            "ground_truth": ground_truth,
+            "predicted": predicted,
+            "correct": is_correct,
+            "num_segments": len(segments),
+            "expected_segments": length,
+        })
+
+    return {
+        "sequences": results,
+        "sequence_accuracy": correct_sequences / num_sequences,
+        "digit_accuracy": correct_digits / total_digits if total_digits > 0 else 0,
+        "segmentation_accuracy": correct_segmentations / num_sequences,
+        "num_sequences": num_sequences,
+    }
+
+
+def generate_multi_digit_report(multi_results):
+    """Generate a formatted text report for multi-digit evaluation."""
+    lines = []
+    lines.append("")
+    lines.append("=" * 70)
+    lines.append("MULTI-DIGIT SEQUENCE EVALUATION")
+    lines.append("=" * 70)
+    lines.append("")
+    lines.append(f"{'Ground Truth':<15} {'Predicted':<15} {'Segments':<12} {'Result'}")
+    lines.append("-" * 55)
+
+    for seq in multi_results["sequences"]:
+        seg_str = f"{seq['num_segments']}/{seq['expected_segments']}"
+        result_str = "CORRECT" if seq["correct"] else "WRONG"
+        lines.append(
+            f"{seq['ground_truth']:<15} {seq['predicted']:<15} {seg_str:<12} {result_str}"
+        )
+
+    lines.append("-" * 55)
+    n = multi_results["num_sequences"]
+    seq_acc = multi_results["sequence_accuracy"] * 100
+    dig_acc = multi_results["digit_accuracy"] * 100
+    seg_acc = multi_results["segmentation_accuracy"] * 100
+    lines.append(f"Sequence Accuracy:     {seq_acc:.1f}% ({int(seq_acc*n/100)}/{n})")
+    lines.append(f"Digit Accuracy:        {dig_acc:.1f}%")
+    lines.append(f"Segmentation Accuracy: {seg_acc:.1f}% ({int(seg_acc*n/100)}/{n})")
+
+    return "\n".join(lines)

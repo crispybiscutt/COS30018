@@ -19,7 +19,8 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from models.model_manager import train_model, load_mnist, get_available_models
 from evaluation.evaluator import (
     evaluate_model, generate_evaluation_report,
-    plot_confusion_matrix, plot_model_comparison, plot_training_history
+    plot_confusion_matrix, plot_model_comparison, plot_training_history,
+    evaluate_multi_digit, generate_multi_digit_report
 )
 from config import SAVED_MODELS_DIR
 
@@ -113,6 +114,28 @@ def main():
     print("\n")
     print(generate_evaluation_report(results))
     print(f"\nCharts saved to: {charts_dir}")
+
+    # Multi-digit sequence evaluation
+    print("\n\nRunning multi-digit sequence evaluation...")
+    from models.model_manager import load_trained_model
+    best_model = load_trained_model("cnn_pytorch")
+    if best_model:
+        multi_save_dir = os.path.join(results_dir, "multi_digit_samples")
+        multi_results = evaluate_multi_digit(
+            best_model, X_test, y_test,
+            num_sequences=8, min_digits=2, max_digits=5,
+            save_dir=multi_save_dir
+        )
+        print(generate_multi_digit_report(multi_results))
+
+        # Save multi-digit results
+        multi_path = os.path.join(results_dir, "multi_digit_results.json")
+        with open(multi_path, "w") as f:
+            json.dump(multi_results, f, indent=2)
+        print(f"\nMulti-digit results saved to: {multi_path}")
+        print(f"Sample images saved to: {multi_save_dir}")
+    else:
+        print("Could not load CNN model for multi-digit evaluation.")
 
 
 if __name__ == "__main__":

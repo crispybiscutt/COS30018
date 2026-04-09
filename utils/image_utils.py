@@ -105,6 +105,36 @@ def create_number_from_folder(folder_path, spacing=10, padding=20):
     return create_number_from_digits(files, spacing, padding)
 
 
+def compose_mnist_number(digit_images, spacing=10, padding=20):
+    """
+    Compose multiple MNIST digit arrays into a single multi-digit number image.
+
+    Args:
+        digit_images: List of 28x28 numpy arrays (float32, 0-1, white-on-black)
+        spacing: Pixels between digits
+        padding: Pixels of padding around the number
+
+    Returns:
+        Grayscale uint8 image with black digits on white background
+    """
+    size = IMAGE_SIZE  # 28
+    n = len(digit_images)
+    canvas_w = n * size + (n - 1) * spacing + 2 * padding
+    canvas_h = size + 2 * padding
+
+    # White background
+    canvas = np.ones((canvas_h, canvas_w), dtype=np.uint8) * 255
+
+    for i, digit in enumerate(digit_images):
+        # Convert from float [0,1] white-on-black to uint8 black-on-white
+        digit_uint8 = (255 - (digit * 255).astype(np.uint8))
+        x = padding + i * (size + spacing)
+        y = padding
+        canvas[y:y + size, x:x + size] = digit_uint8
+
+    return canvas
+
+
 def canvas_to_mnist_format(canvas_image):
     """
     Convert a drawing canvas image (white background, black strokes)

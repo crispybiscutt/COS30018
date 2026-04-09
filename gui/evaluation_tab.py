@@ -17,7 +17,7 @@ matplotlib.use("Qt5Agg")
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from gui.theme import btn_warning, btn_primary, TEXT_SECONDARY, PRIMARY, SUCCESS
+from gui.theme import btn_warning, btn_primary, TEXT_SECONDARY, PRIMARY, SUCCESS, DANGER
 
 
 CHART_STYLE = {
@@ -30,10 +30,9 @@ CHART_STYLE = {
     "ytick.color": "#64748b",
 }
 
-RESULTS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data", "evaluation_results", "results.json"
-)
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESULTS_PATH = os.path.join(_BASE_DIR, "data", "evaluation_results", "results.json")
+MULTI_DIGIT_PATH = os.path.join(_BASE_DIR, "data", "evaluation_results", "multi_digit_results.json")
 
 
 class EvaluationTab(QWidget):
@@ -100,6 +99,23 @@ class EvaluationTab(QWidget):
         metrics_group.setLayout(self.metrics_layout)
         layout.addWidget(metrics_group)
 
+        # Multi-digit evaluation results
+        multi_group = QGroupBox("Multi-Digit Sequence Evaluation")
+        multi_layout = QVBoxLayout()
+        multi_layout.setSpacing(6)
+
+        self.multi_grid = QGridLayout()
+        self.multi_grid.setSpacing(4)
+        multi_layout.addLayout(self.multi_grid)
+
+        self.multi_summary = QLabel("")
+        self.multi_summary.setFont(QFont("Segoe UI", 11))
+        self.multi_summary.setAlignment(Qt.AlignLeft)
+        multi_layout.addWidget(self.multi_summary)
+
+        multi_group.setLayout(multi_layout)
+        layout.addWidget(multi_group)
+
     def _load_results(self):
         """Load pre-computed results from JSON."""
         if not os.path.exists(RESULTS_PATH):
@@ -128,6 +144,9 @@ class EvaluationTab(QWidget):
         # Show per-class metrics for best model
         best = max(self.results, key=lambda r: r["accuracy"])
         self._show_per_class_metrics(best)
+
+        # Load multi-digit results
+        self._load_multi_digit_results()
 
     def _create_summary_card(self, result, color):
         """Create a summary card for a model."""
@@ -261,3 +280,64 @@ class EvaluationTab(QWidget):
         if self.results:
             self.current_cm_index = (self.current_cm_index + 1) % len(self.results)
             self._show_confusion_matrix(self.current_cm_index)
+
+    def _load_multi_digit_results(self):
+        """Load and display multi-digit evaluation results."""
+        if not os.path.exists(MULTI_DIGIT_PATH):
+            self.multi_summary.setText("No multi-digit results found. Run train_and_evaluate.py first.")
+            return
+
+        with open(MULTI_DIGIT_PATH, "r") as f:
+            data = json.load(f)
+
+        sequences = data.get("sequences", [])
+        if not sequences:
+            return
+
+        # Table headers
+        headers = ["Ground Truth", "Predicted", "Segments", "Result"]
+        for col, h in enumerate(headers):
+            label = QLabel(h)
+            label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            label.setStyleSheet(f"color: {PRIMARY};")
+            label.setAlignment(Qt.AlignCenter)
+            self.multi_grid.addWidget(label, 0, col)
+
+        # Table rows
+        for row, seq in enumerate(sequences):
+            gt = QLabel(seq["ground_truth"])
+            gt.setFont(QFont("Consolas", 11, QFont.Bold))
+            gt.setAlignment(Qt.AlignCenter)
+            self.multi_grid.addWidget(gt, row + 1, 0)
+
+            pred = QLabel(seq["predicted"])
+            pred.setFont(QFont("Consolas", 11))
+            pred.setAlignment(Qt.AlignCenter)
+            self.multi_grid.addWidget(pred, row + 1, 1)
+
+            seg_str = f"{seq['num_segments']}/{seq['expected_segments']}"
+            seg = QLabel(seg_str)
+            seg.setFont(QFont("Segoe UI", 10))
+            seg.setAlignment(Qt.AlignCenter)
+            self.multi_grid.addWidget(seg, row + 1, 2)
+
+            is_correct = seq["correct"]
+            result_label = QLabel("CORRECT" if is_correct else "WRONG")
+            result_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            result_label.setAlignment(Qt.AlignCenter)
+            result_label.setStyleSheet(f"color: {SUCCESS};" if is_correct else f"color: {DANGER};")
+            self.multi_grid.addWidget(result_label, row + 1, 3)
+
+        # Summary
+        seq_acc = data.get("sequence_accuracy", 0) * 100
+        dig_acc = data.get("digit_accuracy", 0) * 100
+        seg_acc = data.get("segmentation_accuracy", 0) * 100
+        n = data.get("num_sequences", 0)
+        correct_n = int(seq_acc * n / 100)
+
+        self.multi_summary.setText(
+            f"Sequence Accuracy: {seq_acc:.1f}% ({correct_n}/{n})    |    "
+            f"Digit Accuracy: {dig_acc:.1f}%    |    "
+            f"Segmentation Accuracy: {seg_acc:.1f}%"
+        )
+        self.multi_summary.setStyleSheet(f"color: {PRIMARY}; font-weight: bold; padding: 6px 0;")

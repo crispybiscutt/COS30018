@@ -1,0 +1,64 @@
+{
+  "sequences": [
+    {
+      "ground_truth": "3746",
+      "predicted": "3746",
+      "correct": true,
+      "num_segments": 4,
+      "expected_segments": 4
+    },
+    {
+      "ground_truth": "7437",
+      "predicted": "7437",
+      "correct": true,
+      "num_segments": 4,
+      "expected_segments": 4
+    },
+    {
+      "ground_truth": "51409",
+      "predicted": "51409",
+      "correct": true,
+      "num_segments": 5,
+      "expected_segments": 5
+    },
+    {
+      "ground_truth": "9263",
+      "predicted": "9263",
+      "correct": true,
+      "num_segments": 4,
+      "expected_segments": 4
+    },
+    {
+      "ground_truth": "1381",
+      "predicted": "388",
+      "correct": false,
+      "num_segments": 3,
+      "expected_segments": 4
+    },
+    {
+      "ground_truth": "67203",
+      "predicted": "67203",
+      "correct": true,
+      "num_segments": 5,
+      "expected_segments": 5
+    },
+    {
+      "ground_truth": "351",
+      "predicted": "351",
+      "correct": true,
+      "num_segments": 3,
+      "expected_segments": 3
+    },
+    {
+      "ground_truth": "376",
+      "predicted": "376",
+      "correct": true,
+      "num_segments": 3,
+      "expected_segments": 3
+    }
+  ],
+  "sequence_accuracy": 0.875,
+  "digit_accuracy": 0.875,
+  "segmentation_accuracy": 0.875,
+  "num_sequences": 8
+}
